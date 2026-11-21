@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070a14">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>لوحة الصحة — v5</title>
+<title>لوحة الصحة — v6</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   :root{
@@ -384,6 +384,15 @@
 <!-- VIEW: LOG -->
 <section class="view" id="view-log">
   <div class="card">
+    <div class="card-head"><h2><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3M21 3v6h-6"/></svg> الربط التلقائي</h2><span class="hint" id="apiState"></span></div>
+    <form id="apiForm">
+      <div class="full"><label>رابط الـ Worker</label><input type="url" id="apiUrlInput" placeholder="https://health-receiver.اسمك.workers.dev" dir="ltr"></div>
+      <div class="full"><label>الرمز السري (Token)</label><input type="password" id="apiTokenInput" placeholder="••••••••" dir="ltr"></div>
+    </form>
+    <div style="margin-top:12px"><button class="act" id="apiSaveBtn">حفظ وربط</button></div>
+    <p class="note" id="apiStatus">يُحفظ الرابط والرمز في متصفح هاتفك فقط — لا يُنشران في الملف. بعد الحفظ ستظهر بيانات ساعتك الحقيقية تلقائيًا.</p>
+  </div>
+  <div class="card">
     <div class="card-head"><h2><svg class="ic" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg> تقرير الأسبوع</h2><span class="hint">هذا الأسبوع مقابل الماضي</span></div>
     <div id="weeklyReport"></div>
     <div style="margin-top:12px"><button class="act" id="shareBtn">إنشاء بطاقة ملخص الأسبوع (صورة)</button></div>
@@ -438,6 +447,13 @@
    apiUrl: "https://health-receiver.YOURNAME.workers.dev/days" */
 const CONFIG = { apiUrl: "" };
 const LS_KEY = "healthDashboardManualV1"; // same key as v1/v2/mobile
+const API_KEY = "healthDashboardApiV1"; // Worker URL + token, stored on-device only
+function apiSettings(){ try{ return JSON.parse(localStorage.getItem(API_KEY)) || {}; }catch(e){ return {}; } }
+function apiFetchUrl(){
+  const s = apiSettings();
+  if(s.url){ return s.url.replace(/\/+$/,"") + "/days" + (s.token ? "?token=" + encodeURIComponent(s.token) : ""); }
+  return CONFIG.apiUrl;
+}
 
 const ICONS = {
   moon:'<svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
@@ -491,8 +507,9 @@ function manualEntries(){
 }
 async function loadAll(){
   let base = demoData(), source = "تجريبي";
-  if(CONFIG.apiUrl){
-    try{ const r = await fetch(CONFIG.apiUrl); if(r.ok){ base = await r.json(); source = "تلقائي"; } }catch(e){}
+  const fetchUrl = apiFetchUrl();
+  if(fetchUrl){
+    try{ const r = await fetch(fetchUrl); if(r.ok){ base = await r.json(); source = "تلقائي"; } }catch(e){}
   }
   const byDate = {};
   base.forEach(r => byDate[r.date] = r);
@@ -947,6 +964,27 @@ document.getElementById("rangeSeg").addEventListener("click", e=>{
 });
 document.getElementById("wakeInput").addEventListener("change", renderCalc);
 document.getElementById("shareBtn").addEventListener("click", shareCard);
+(function(){
+  const s = apiSettings();
+  if(s.url) document.getElementById("apiUrlInput").value = s.url;
+  if(s.token) document.getElementById("apiTokenInput").value = s.token;
+  document.getElementById("apiState").textContent = s.url ? "مربوط" : "غير مربوط";
+})();
+document.getElementById("apiSaveBtn").addEventListener("click", async ()=>{
+  const url = document.getElementById("apiUrlInput").value.trim().replace(/\/+$/,"");
+  const token = document.getElementById("apiTokenInput").value.trim();
+  const st = document.getElementById("apiStatus");
+  if(!url){ st.textContent = "دخّل رابط الـ Worker أولًا."; return; }
+  localStorage.setItem(API_KEY, JSON.stringify({url, token}));
+  st.textContent = "كنتحقق من الربط…";
+  try{
+    const r = await fetch(url + "/days" + (token ? "?token=" + encodeURIComponent(token) : ""));
+    if(r.ok){ const rows = await r.json(); st.textContent = "تم الربط ✅ — وصلات " + rows.length + " يوم من البيانات."; document.getElementById("apiState").textContent = "مربوط"; }
+    else if(r.status === 401){ st.textContent = "الرمز السري غير صحيح ❌ — تأكد منو وعاود."; }
+    else { st.textContent = "الـ Worker رد بخطأ " + r.status + " — تأكد من الرابط."; }
+  }catch(e){ st.textContent = "ما قدرناش نوصلو للـ Worker — تأكد من الرابط والإنترنت."; }
+  loadAll().then(rows=>{ ALL = rows; refresh(); });
+});
 
 /* ================= FORM EVENTS ================= */
 document.getElementById("fDate").value = new Date().toISOString().slice(0,10);
